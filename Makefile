@@ -161,13 +161,19 @@ test: $(BIN)
 	@printf '{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"inspect_cgroup_slice","arguments":{}}}\n' | ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP inspect_cgroup_slice missing slice exits -32602"
 	@printf '{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{}}}\n' | ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics missing pid exits -32602"
 	@printf '{"jsonrpc":"2.0","id":28,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":99999999}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics nonexistent pid exits -32602"
-	@echo "=== Double-Run Determinism ==="
+	@printf '{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":-1}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics negative pid exits -32602"
+	@printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":1.5}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics float pid exits -32602"
+	@printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":0}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics pid 0 exits -32602"
+	@printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"process_list","arguments":{"limit":-5}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q "user.slice" && echo "PASS: MCP process_list negative limit fallback"
+	@echo "=== Double-Run Determinism & Layout Uniformity ==="
 	@run1="$$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | ./$(BIN) --mcp)"; \
 	run2="$$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | ./$(BIN) --mcp)"; \
 	test "$$run1" = "$$run2" && echo "PASS: determinism tools/list Run_1 == Run_2"
 	@run1="$$(OODA_NO_JAIL=1 ./$(BIN) -b --no-color | grep -E '(ootop|Systemd Slices|Active Processes|PID)' | tr -d '[:space:]')"; \
 	run2="$$(OODA_NO_JAIL=1 ./$(BIN) -b --no-color | grep -E '(ootop|Systemd Slices|Active Processes|PID)' | tr -d '[:space:]')"; \
 	test "$$run1" = "$$run2" && echo "PASS: determinism batch layout structure Run_1 == Run_2"
+	@OODA_NO_JAIL=1 OO_COLUMNS=50 ./$(BIN) -b --no-color | awk '{ if (length != 50) exit 1 }' && echo "PASS: compact layout 50-col rectangular uniformity"
+	@OODA_NO_JAIL=1 ./$(BIN) -b --no-color | awk '{ if (length != 81) exit 1 }' && echo "PASS: standard layout 81-col rectangular uniformity"
 	@echo "=== Packaging & Installer Smoke Tests ==="
 	@./install.sh --dry-run > /dev/null && echo "PASS: install.sh --dry-run"
 	@./install.sh --uninstall --dry-run > /dev/null && echo "PASS: install.sh --uninstall --dry-run"

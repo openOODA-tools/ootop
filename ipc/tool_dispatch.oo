@@ -48,6 +48,29 @@ pub fn render_proc_json(p: ProcEntry) -> String {
         + ",\"threads\":" + to_string(p.threads) + "}";
 }
 
+fn is_pure_positive_int(s: String) -> Bool {
+    let t: String = str_trim(s);
+    let n: Int = chars_len(t);
+    if n == 0 { return false; }
+    let clean: String = if char_at(t, 0) == "\"" && char_at(t, n - 1) == "\"" && n > 2 {
+        str_slice(t, 1, n - 1)
+    } else {
+        t
+    };
+    let cn: Int = chars_len(clean);
+    if cn == 0 { return false; }
+    let mut i: Int = 0;
+    while i < cn {
+        let c: String = char_at(clean, i);
+        if c != "0" && c != "1" && c != "2" && c != "3" && c != "4" &&
+           c != "5" && c != "6" && c != "7" && c != "8" && c != "9" {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
 pub fn handle_tool_call(fs: &FsReadCap, id: String, req: String) -> String {
     let params: String = json_field_raw(req, "params");
     let tool_name: String = json_field_string(params, "name");
@@ -144,6 +167,9 @@ pub fn handle_tool_call(fs: &FsReadCap, id: String, req: String) -> String {
         let raw_pid: String = json_field_raw(args, "pid");
         if chars_len(raw_pid) == 0 {
             return build_error(id, -32602, "missing required argument: pid");
+        }
+        if !is_pure_positive_int(raw_pid) {
+            return build_error(id, -32602, "invalid pid: " + raw_pid);
         }
         let pid_val: Int = parse_proc_int(raw_pid);
         if pid_val <= 0 {

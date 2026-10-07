@@ -45,8 +45,17 @@ fn render_cycle(fs: &FsReadCap, theme: String, use_color: Bool, term_width: Int)
     let mem: MemStat = read_mem_stat(fs);
     let disk: DiskStat = read_disk_stat(fs);
     let net: NetStat = read_net_stat(fs);
-    let procs: List[ProcEntry] = collect_top_processes(fs, 10);
-    let slices: SliceReport = aggregate_slices(procs);
+    let all_procs: List[ProcEntry] = collect_all_processes(fs);
+    let slices: SliceReport = aggregate_slices(all_procs);
+    let sorted: List[ProcEntry] = sort_proc_entries(all_procs, "memory");
+    let c_len: Int = list_len(sorted);
+    let mut procs: List[ProcEntry] = list_new();
+    let max_n: Int = if c_len < 10 { c_len } else { 10 };
+    let mut j: Int = 0;
+    while j < max_n {
+        procs = list_push(procs, list_get(sorted, j));
+        j = j + 1;
+    }
 
     let frame: String = render_dashboard(cpu, mem, disk, net, slices, procs, theme, use_color, term_width);
     print(frame);
@@ -70,16 +79,19 @@ pub fn main(fs: &FsReadCap, time: &TimeCap, env: &EnvCap, args: List[String]) ->
     let use_color: Bool = !opts.no_color;
 
     let mut term_width: Int = 80;
+    let mut cw: Int = 0;
     let oo_col: Result[String, String] = env_get(env, "OO_COLUMNS");
     if oo_col.is_ok() {
-        let cw: Int = parse_proc_int(match oo_col { Ok(s) => s, Err(_) => "" });
-        if cw > 0 { term_width = cw; }
-    } else {
+        cw = parse_proc_int(match oo_col { Ok(s) => s, Err(_) => "" });
+    }
+    if cw <= 0 {
         let col_res: Result[String, String] = env_get(env, "COLUMNS");
         if col_res.is_ok() {
-            let cw: Int = parse_proc_int(match col_res { Ok(s) => s, Err(_) => "" });
-            if cw > 0 { term_width = cw; }
+            cw = parse_proc_int(match col_res { Ok(s) => s, Err(_) => "" });
         }
+    }
+    if cw > 0 {
+        term_width = cw;
     }
 
     if opts.batch_mode {
