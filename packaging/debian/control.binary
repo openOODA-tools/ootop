@@ -1,0 +1,10 @@
+Package: ootop
+Version: 0.1.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Description: Sovereign real-time system monitor with systemd slice grouping
+ A btop/top replacement written in pure openOODA, featuring
+ negative-trust capability security, systemd slice resource aggregation,
+ ASCII meters and emotional mascot moods, and an MCP stdio surface.

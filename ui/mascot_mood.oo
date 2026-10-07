@@ -1,0 +1,54 @@
+// # Mascot Mood Renderer - Dynamic Emotional Mascot
+//
+// Logline: Generates ASCII droid/cat mascot expressions reflecting instantaneous system load.
+//
+// Setup: Pure visual generator. Translates processor workload percentage into mascot emotions.
+//
+// Beats:
+//   1. Classify workload tier into Serene, Active, or Overload states.
+//   2. Render 3-line ASCII mascot with dynamic facial expressions.
+//   3. Apply theme-aware ANSI color accents to eyes and status banner.
+
+import "render/render_theme.oo";
+
+pub type MascotMood = struct {
+    line1: String,
+    line2: String,
+    line3: String,
+    label: String
+};
+
+pub fn get_mascot_mood(load_percent: Int, theme: String, use_color: Bool) -> MascotMood {
+    let esc: String = ansi_esc();
+
+    if load_percent > 75 {
+        let col: String = if use_color { esc + "[31m" } else { "" };
+        let rst: String = if use_color { esc + "[0m" } else { "" };
+        return MascotMood {
+            line1: "  /\\_/\\  ",
+            line2: " (" + col + " >.< " + rst + ") ",
+            line3: "  > ! <  ",
+            label: "TURBO   [OVERLOAD]"
+        };
+    }
+
+    if load_percent > 40 {
+        let col: String = if use_color { esc + "[33m" } else { "" };
+        let rst: String = if use_color { esc + "[0m" } else { "" };
+        return MascotMood {
+            line1: "  /\\_/\\  ",
+            line2: " (" + col + " o.o " + rst + ") ",
+            line3: "  > ~ <  ",
+            label: "ACTIVE  [VIGILANT]"
+        };
+    }
+
+    let col: String = if use_color { esc + "[32m" } else { "" };
+    let rst: String = if use_color { esc + "[0m" } else { "" };
+    return MascotMood {
+        line1: "  /\\_/\\  ",
+        line2: " (" + col + " ^.^ " + rst + ") ",
+        line3: "  > ^ <  ",
+        label: "OPTIMAL [SERENE]"
+    };
+}

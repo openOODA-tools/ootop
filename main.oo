@@ -1,0 +1,99 @@
+// # ootop Entry Point - Real-Time Dashboard Runtime
+//
+// Logline: Sovereign capability-bounded real-time system monitor with systemd slice awareness.
+//
+// Setup: Bound to FsReadCap, TimeCap, and EnvCap. Zero ambient authority.
+//
+// Beats:
+//   1. Parse command-line switches and configure dashboard cadence.
+//   2. Hydrate theme palette from oote and terminal environment.
+//   3. Execute batch or continuous dashboard refresh cycles.
+
+import "proc/anchor.oo";
+import "systemd/anchor.oo";
+import "ui/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";
+import "std/fs/time/chrono.oo";
+
+fn print_help() {
+    println("ootop 0.1.0 (openOODA sovereign top)");
+    println("Usage: ootop [OPTIONS]");
+    println("");
+    println("Real-time TUI dashboard and system monitor with systemd slice grouping.");
+    println("");
+    println("Options:");
+    println("  -b, --batch              run in batch mode (single-shot or iteration-bounded)");
+    println("  -d, --delay <SEC>        refresh delay in seconds [default: 2]");
+    println("  -n, --iterations <NUM>   number of refresh cycles before exiting");
+    println("  -t, --theme <NAME>       override active oote theme palette");
+    println("      --no-color           disable ANSI color escapes");
+    println("      --mcp                run as Model Context Protocol stdio server");
+    println("  -h, --help               display this help and exit");
+    println("  -v, --version            output version information and exit");
+}
+
+fn print_version() {
+    println("ootop 0.1.0");
+    println("Copyright (C) 2026 openOODA Project.");
+    println("License: Apache 2.0. Sovereign capability-bounded system dashboard.");
+}
+
+fn render_cycle(fs: &FsReadCap, theme: String, use_color: Bool) {
+    let cpu: CpuOverview = read_cpu_overview(fs);
+    let mem: MemStat = read_mem_stat(fs);
+    let disk: DiskStat = read_disk_stat(fs);
+    let net: NetStat = read_net_stat(fs);
+    let procs: List[ProcEntry] = collect_top_processes(fs, 10);
+    let slices: SliceReport = aggregate_slices(procs);
+
+    let frame: String = render_dashboard(cpu, mem, disk, net, slices, procs, theme, use_color);
+    print(frame);
+}
+
+pub fn main(fs: &FsReadCap, time: &TimeCap, env: &EnvCap, args: List[String]) -> Result[Int, String] {
+    let opts: TopOpts = parse_top_opts(args);
+    if opts.show_help {
+        print_help();
+        return Ok(0);
+    }
+    if opts.show_version {
+        print_version();
+        return Ok(0);
+    }
+    if opts.mcp_mode {
+        return Ok(run_mcp_server(fs));
+    }
+
+    let theme: String = if opts.theme_override != "" { opts.theme_override } else { resolve_top_theme(fs, env) };
+    let use_color: Bool = !opts.no_color;
+
+    if opts.batch_mode {
+        let max_iter: Int = if opts.iterations > 0 { opts.iterations } else { 1 };
+        let mut i: Int = 0;
+        while i < max_iter {
+            render_cycle(fs, theme, use_color);
+            i = i + 1;
+            if i < max_iter {
+                chrono_sleep_ms(time, opts.delay_sec * 1000);
+            }
+        }
+        return Ok(0);
+    }
+
+    let max_iter: Int = opts.iterations;
+    let mut iter: Int = 0;
+    print(term_clear() + term_hide_cursor());
+
+    while max_iter == 0 || iter < max_iter {
+        print(term_cursor_home());
+        render_cycle(fs, theme, use_color);
+        iter = iter + 1;
+        if max_iter == 0 || iter < max_iter {
+            chrono_sleep_ms(time, opts.delay_sec * 1000);
+        }
+    }
+
+    print(term_show_cursor());
+    return Ok(0);
+}

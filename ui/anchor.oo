@@ -1,0 +1,14 @@
+// # UI Subsystem Anchor
+//
+// Logline: Re-exports sparkline graphs, emotional mascot mood art, and dashboard layout.
+//
+// Setup: Pure shim re-exporting UI domain pages.
+//
+// Beats:
+//   1. Re-export sparklines and progress bar meters.
+//   2. Re-export load-reactive emotional mascot art.
+//   3. Re-export TUI dashboard presentation grid.
+
+import "sparkline.oo";
+import "mascot_mood.oo";
+import "dashboard.oo";

@@ -1,0 +1,69 @@
+// # Sparkline and Progress Bar Renderer
+//
+// Logline: Generates Unicode sparkline charts and colored resource usage progress bars.
+//
+// Setup: Pure string formatter. Maps integer percentages to visual glyphs.
+//
+// Beats:
+//   1. Map integer metrics into 8-level Unicode sparkline block characters.
+//   2. Render bounded progress meters with filled and empty glyph patterns.
+//   3. Colorize meters dynamically according to workload thresholds.
+
+import "render/render_theme.oo";
+
+pub fn spark_char(val: Int) -> String {
+    if val < 13 { return " "; }
+    if val < 26 { return "▂"; }
+    if val < 38 { return "▃"; }
+    if val < 51 { return "▄"; }
+    if val < 63 { return "▅"; }
+    if val < 76 { return "▆"; }
+    if val < 88 { return "▇"; }
+    return "█";
+}
+
+pub fn render_sparkline(history: List[Int]) -> String {
+    let n: Int = list_len(history);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let v: Int = list_get(history, i);
+        out = out + spark_char(v);
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_progress_bar(percent: Int, width: Int, theme: String, use_color: Bool) -> String {
+    let bounded_pct: Int = if percent < 0 { 0 } else if percent > 100 { 100 } else { percent };
+    let filled: Int = (bounded_pct * width) / 100;
+    let empty: Int = width - filled;
+
+    let mut bar_filled: String = "";
+    let mut i: Int = 0;
+    while i < filled {
+        bar_filled = bar_filled + "█";
+        i = i + 1;
+    }
+
+    let mut bar_empty: String = "";
+    let mut j: Int = 0;
+    while j < empty {
+        bar_empty = bar_empty + "░";
+        j = j + 1;
+    }
+
+    let pct_str: String = " " + to_string(bounded_pct) + "%";
+
+    if !use_color {
+        return "[" + bar_filled + bar_empty + "]" + pct_str;
+    }
+
+    let col_role: String = if bounded_pct > 85 { "crit" } else if bounded_pct > 65 { "warn" } else { "accent" };
+    let c_code: String = color_code(theme, col_role);
+    let esc: String = ansi_esc();
+    let styled_fill: String = esc + "[" + c_code + "m" + bar_filled + esc + "[0m";
+    let styled_empty: String = esc + "[90m" + bar_empty + esc + "[0m";
+
+    return "[" + styled_fill + styled_empty + "]" + pct_str;
+}

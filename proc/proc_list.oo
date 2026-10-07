@@ -1,0 +1,95 @@
+// # Process List Collector - Process Table Enumerator
+//
+// Logline: Enumerate active system processes, extracting PID, memory, state, and cgroup slice.
+//
+// Setup: Requires FsReadCap. Inspects /proc/[pid]/comm, statm, and cgroup.
+//
+// Beats:
+//   1. Scan /proc numeric entries to discover active processes.
+//   2. Ingest command names, resident memory, and systemd cgroup assignments.
+//   3. Sort and bound top running processes for the dashboard table.
+
+import "std/fs/os/fs.oo";
+import "proc_read.oo";
+
+pub type ProcEntry = struct {
+    pid: Int,
+    comm: String,
+    state: String,
+    rss_mib: Int,
+    slice: String
+};
+
+fn is_numeric_str(s: String) -> Bool {
+    let n: Int = chars_len(s);
+    if n == 0 { return false; }
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(s, i);
+        if c != "0" && c != "1" && c != "2" && c != "3" && c != "4" &&
+           c != "5" && c != "6" && c != "7" && c != "8" && c != "9" {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fn extract_proc_slice(cgroup_content: String) -> String {
+    if str_contains(cgroup_content, "system.slice") { return "system.slice"; }
+    if str_contains(cgroup_content, "user.slice") { return "user.slice"; }
+    if str_contains(cgroup_content, "app.slice") { return "app.slice"; }
+    if str_contains(cgroup_content, "init.scope") { return "init.scope"; }
+    return "root.slice";
+}
+
+pub fn read_proc_entry(fs: &FsReadCap, pid: Int) -> ProcEntry {
+    let pid_str: String = to_string(pid);
+    let comm_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/comm");
+    let comm: String = if comm_raw != "" { str_trim(comm_raw) } else { "unknown" };
+
+    let statm_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/statm");
+    let statm_words: List[String] = split_proc_words(statm_raw);
+    let rss_pages: Int = if list_len(statm_words) > 1 { parse_proc_int(list_get(statm_words, 1)) } else { 0 };
+    let rss_m: Int = (rss_pages * 4) / 1024;
+
+    let cgroup_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/cgroup");
+    let slice: String = extract_proc_slice(cgroup_raw);
+
+    return ProcEntry {
+        pid: pid,
+        comm: comm,
+        state: "R",
+        rss_mib: rss_m,
+        slice: slice
+    };
+}
+
+pub fn collect_top_processes(fs: &FsReadCap, limit: Int) -> List[ProcEntry] {
+    let entries: List[String] = fs_read_dir(fs, "/proc");
+    let total: Int = list_len(entries);
+    let mut collected: List[ProcEntry] = list_new();
+
+    let mut i: Int = 0;
+    while i < total {
+        let name: String = list_get(entries, i);
+        if is_numeric_str(name) {
+            let pid: Int = parse_proc_int(name);
+            let entry: ProcEntry = read_proc_entry(fs, pid);
+            if entry.rss_mib > 0 || list_len(collected) < limit {
+                collected = list_push(collected, entry);
+            }
+        }
+        i = i + 1;
+    }
+
+    let c_len: Int = list_len(collected);
+    let mut top: List[ProcEntry] = list_new();
+    let max_n: Int = if c_len < limit { c_len } else { limit };
+    let mut j: Int = 0;
+    while j < max_n {
+        top = list_push(top, list_get(collected, j));
+        j = j + 1;
+    }
+    return top;
+}

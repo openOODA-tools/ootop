@@ -1,0 +1,101 @@
+// # Option Parser - CLI Argument Processor
+//
+// Logline: Decodes command line arguments and switches for dashboard cadence and modes.
+//
+// Setup: Pure string analyzer. Maps flags to typed TopOpts representation.
+//
+// Beats:
+//   1. Define TopOpts record structure capturing dashboard flags.
+//   2. Parse POSIX flags and long switches without ambient state.
+//   3. Provide safe default configuration for interactive or batch operation.
+
+pub type TopOpts = struct {
+    batch_mode: Bool,
+    delay_sec: Int,
+    iterations: Int,
+    no_color: Bool,
+    theme_override: String,
+    mcp_mode: Bool,
+    show_help: Bool,
+    show_version: Bool
+};
+
+pub fn default_top_opts() -> TopOpts {
+    return TopOpts {
+        batch_mode: false,
+        delay_sec: 2,
+        iterations: 0,
+        no_color: false,
+        theme_override: "",
+        mcp_mode: false,
+        show_help: false,
+        show_version: false
+    };
+}
+
+fn parse_opt_int(s: String, default_v: Int) -> Int {
+    let t: String = str_trim(s);
+    let n: Int = chars_len(t);
+    let mut v: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(t, i);
+        if c == "0" { v = v * 10; }
+        else if c == "1" { v = v * 10 + 1; }
+        else if c == "2" { v = v * 10 + 2; }
+        else if c == "3" { v = v * 10 + 3; }
+        else if c == "4" { v = v * 10 + 4; }
+        else if c == "5" { v = v * 10 + 5; }
+        else if c == "6" { v = v * 10 + 6; }
+        else if c == "7" { v = v * 10 + 7; }
+        else if c == "8" { v = v * 10 + 8; }
+        else if c == "9" { v = v * 10 + 9; }
+        else { return default_v; }
+        i = i + 1;
+    }
+    return v;
+}
+
+pub fn parse_top_opts(args: List[String]) -> TopOpts {
+    let mut opts: TopOpts = default_top_opts();
+    let total: Int = list_len(args);
+    let mut i: Int = 0;
+
+    while i < total {
+        let arg: String = list_get(args, i);
+
+        if arg == "-h" || arg == "--help" {
+            opts.show_help = true;
+        } else if arg == "-v" || arg == "--version" {
+            opts.show_version = true;
+        } else if arg == "-b" || arg == "--batch" {
+            opts.batch_mode = true;
+        } else if arg == "--mcp" {
+            opts.mcp_mode = true;
+        } else if arg == "--no-color" {
+            opts.no_color = true;
+        } else if (arg == "-d" || arg == "--delay") && i + 1 < total {
+            i = i + 1;
+            opts.delay_sec = parse_opt_int(list_get(args, i), 2);
+        } else if str_starts_with(arg, "--delay=") {
+            opts.delay_sec = parse_opt_int(str_slice(arg, 8, chars_len(arg)), 2);
+        } else if (arg == "-n" || arg == "--iterations") && i + 1 < total {
+            i = i + 1;
+            opts.iterations = parse_opt_int(list_get(args, i), 1);
+        } else if str_starts_with(arg, "--iterations=") {
+            opts.iterations = parse_opt_int(str_slice(arg, 13, chars_len(arg)), 1);
+        } else if (arg == "-t" || arg == "--theme") && i + 1 < total {
+            i = i + 1;
+            opts.theme_override = list_get(args, i);
+        } else if str_starts_with(arg, "--theme=") {
+            opts.theme_override = str_slice(arg, 8, chars_len(arg));
+        }
+        i = i + 1;
+    }
+
+    if opts.batch_mode && opts.iterations == 0 {
+        opts.iterations = 1;
+    }
+
+    return opts;
+}

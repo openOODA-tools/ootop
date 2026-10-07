@@ -1,0 +1,12 @@
+// # Render Subsystem Anchor
+//
+// Logline: Re-exports theme resolution, ANSI coloring, and terminal cursor control.
+//
+// Setup: Pure shim re-exporting render domain pages.
+//
+// Beats:
+//   1. Re-export oote theme resolver.
+//   2. Re-export ANSI color mapping and text styling.
+//   3. Re-export terminal control escape codes.
+
+import "render_theme.oo";

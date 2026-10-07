@@ -1,0 +1,73 @@
+// # Mem Stat Collector - Memory and Swap Utilization
+//
+// Logline: Ingests /proc/meminfo to compute physical memory and swap utilization metrics.
+//
+// Setup: Requires FsReadCap. Extracts key memory fields and calculates percentages.
+//
+// Beats:
+//   1. Scan /proc/meminfo for MemTotal, MemAvailable, SwapTotal, and SwapFree.
+//   2. Compute used memory and swap allocations in megabytes.
+//   3. Produce structured memory telemetry records.
+
+import "proc_read.oo";
+
+pub type MemStat = struct {
+    mem_total_mib: Int,
+    mem_used_mib: Int,
+    mem_percent: Int,
+    swap_total_mib: Int,
+    swap_used_mib: Int,
+    swap_percent: Int,
+    formatted_mem: String,
+    formatted_swap: String
+};
+
+fn extract_kb_val(lines: List[String], key: String) -> Int {
+    let n: Int = list_len(lines);
+    let mut i: Int = 0;
+    while i < n {
+        let line: String = list_get(lines, i);
+        if str_starts_with(line, key) {
+            let rest: String = str_slice(line, chars_len(key), chars_len(line));
+            return parse_proc_int(rest);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+pub fn read_mem_stat(fs: &FsReadCap) -> MemStat {
+    let content: String = read_proc_text(fs, "/proc/meminfo");
+    let lines: List[String] = split_proc_lines(content);
+
+    let tot_kb: Int = extract_kb_val(lines, "MemTotal:");
+    let avail_kb: Int = extract_kb_val(lines, "MemAvailable:");
+    let free_kb: Int = if avail_kb > 0 { avail_kb } else { extract_kb_val(lines, "MemFree:") };
+    let used_kb: Int = if tot_kb > free_kb { tot_kb - free_kb } else { 0 };
+
+    let sw_tot_kb: Int = extract_kb_val(lines, "SwapTotal:");
+    let sw_free_kb: Int = extract_kb_val(lines, "SwapFree:");
+    let sw_used_kb: Int = if sw_tot_kb > sw_free_kb { sw_tot_kb - sw_free_kb } else { 0 };
+
+    let m_tot: Int = tot_kb / 1024;
+    let m_usd: Int = used_kb / 1024;
+    let m_pct: Int = if m_tot > 0 { (m_usd * 100) / m_tot } else { 0 };
+
+    let s_tot: Int = sw_tot_kb / 1024;
+    let s_usd: Int = sw_used_kb / 1024;
+    let s_pct: Int = if s_tot > 0 { (s_usd * 100) / s_tot } else { 0 };
+
+    let fmt_m: String = to_string(m_usd) + "MiB / " + to_string(m_tot) + "MiB (" + to_string(m_pct) + "%)";
+    let fmt_s: String = to_string(s_usd) + "MiB / " + to_string(s_tot) + "MiB (" + to_string(s_pct) + "%)";
+
+    return MemStat {
+        mem_total_mib: m_tot,
+        mem_used_mib: m_usd,
+        mem_percent: m_pct,
+        swap_total_mib: s_tot,
+        swap_used_mib: s_usd,
+        swap_percent: s_pct,
+        formatted_mem: fmt_m,
+        formatted_swap: fmt_s
+    };
+}

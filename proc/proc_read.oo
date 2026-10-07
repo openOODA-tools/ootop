@@ -1,0 +1,94 @@
+// # Proc Reader - Virtual Filesystem Ingestion Primitives
+//
+// Logline: Ingests virtual /proc text streams and provides structured line and token parsing.
+//
+// Setup: Requires FsReadCap. Leverages file_reader_open and file_reader_read_all.
+//
+// Beats:
+//   1. Ingest virtual filesystem payloads through streaming file readers.
+//   2. Parse integer values robustly from space-padded text representations.
+//   3. Tokenize lines into whitespace-delimited word sequences.
+
+import "std/fs/file/file_reader.oo";
+
+pub fn read_proc_text(fs: &FsReadCap, path: String) -> String {
+    let r_open: Result[FileReader, String] = file_reader_open(fs, path);
+    if r_open.is_err() { return ""; }
+    let reader: FileReader = match r_open { Ok(r) => r, Err(_) => return "" };
+    let r_read: Result[String, String] = file_reader_read_all(fs, reader);
+    return match r_read { Ok(s) => s, Err(_) => "" };
+}
+
+fn digit_val(c: String) -> Int {
+    if c == "1" { return 1; }
+    if c == "2" { return 2; }
+    if c == "3" { return 3; }
+    if c == "4" { return 4; }
+    if c == "5" { return 5; }
+    if c == "6" { return 6; }
+    if c == "7" { return 7; }
+    if c == "8" { return 8; }
+    if c == "9" { return 9; }
+    return 0;
+}
+
+pub fn parse_proc_int(s: String) -> Int {
+    let t: String = str_trim(s);
+    let n: Int = chars_len(t);
+    let mut i: Int = 0;
+    let mut v: Int = 0;
+    while i < n {
+        let c: String = char_at(t, i);
+        if c == "0" || c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9" {
+            v = v * 10 + digit_val(c);
+        } else if v > 0 {
+            break;
+        }
+        i = i + 1;
+    }
+    return v;
+}
+
+pub fn split_proc_lines(content: String) -> List[String] {
+    let mut lines: List[String] = list_new();
+    let n: Int = chars_len(content);
+    let mut cur: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(content, i);
+        if c == "\n" {
+            lines = list_push(lines, cur);
+            cur = "";
+        } else if c != "\r" {
+            cur = cur + c;
+        }
+        i = i + 1;
+    }
+    if cur != "" {
+        lines = list_push(lines, cur);
+    }
+    return lines;
+}
+
+pub fn split_proc_words(line: String) -> List[String] {
+    let mut words: List[String] = list_new();
+    let n: Int = chars_len(line);
+    let mut cur: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(line, i);
+        if c == " " || c == "\t" {
+            if cur != "" {
+                words = list_push(words, cur);
+                cur = "";
+            }
+        } else {
+            cur = cur + c;
+        }
+        i = i + 1;
+    }
+    if cur != "" {
+        words = list_push(words, cur);
+    }
+    return words;
+}

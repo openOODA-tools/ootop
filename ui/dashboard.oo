@@ -1,0 +1,104 @@
+// # Dashboard Renderer - Screen Layout and Process Presentation
+//
+// Logline: Composes system resource meters, slices, mascot, and process tables into TUI frame.
+//
+// Setup: Pure string formatter. Assembles multi-column dashboard without ambient authority.
+//
+// Beats:
+//   1. Format header banner with system posture metrics and visual glyphs.
+//   2. Lay out systemd slice allocation summaries.
+//   3. Render top active processes in a bounded terminal table.
+
+import "proc/cpu_stat.oo";
+import "proc/mem_stat.oo";
+import "proc/disk_stat.oo";
+import "proc/net_stat.oo";
+import "proc/proc_list.oo";
+import "systemd/slice_group.oo";
+import "render/render_theme.oo";
+import "sparkline.oo";
+import "mascot_mood.oo";
+
+pub fn pad_right(s: String, w: Int) -> String {
+    let mut out: String = s;
+    let mut len: Int = chars_len(s);
+    while len < w {
+        out = out + " ";
+        len = len + 1;
+    }
+    return out;
+}
+
+pub fn pad_left(s: String, w: Int) -> String {
+    let mut pad: String = "";
+    let mut len: Int = chars_len(s);
+    while len < w {
+        pad = pad + " ";
+        len = len + 1;
+    }
+    return pad + s;
+}
+
+pub fn fit_str(s: String, w: Int) -> String {
+    let n: Int = chars_len(s);
+    if n > w { return str_slice(s, 0, w); }
+    return pad_right(s, w);
+}
+
+pub fn render_dashboard(
+    cpu: CpuOverview,
+    mem: MemStat,
+    disk: DiskStat,
+    net: NetStat,
+    slices: SliceReport,
+    procs: List[ProcEntry],
+    theme: String,
+    use_color: Bool
+) -> String {
+    let esc: String = ansi_esc();
+    let border_col: String = if use_color { esc + "[90m" } else { "" };
+    let rst: String = if use_color { esc + "[0m" } else { "" };
+    let title_col: String = if use_color { esc + "[1;36m" } else { "" };
+
+    let mut out: String = "";
+    out = out + border_col + "╭── " + title_col + "ootop 0.1.0 (sovereign top)" + border_col + " ───────────────────────────────────────────────────╮" + rst + "\n";
+
+    let cpu_bar: String = render_progress_bar(cpu.percent, 16, theme, use_color);
+    let mem_bar: String = render_progress_bar(mem.mem_percent, 16, theme, use_color);
+    let swp_bar: String = render_progress_bar(mem.swap_percent, 16, theme, use_color);
+    let mascot: MascotMood = get_mascot_mood(cpu.percent, theme, use_color);
+
+    let d_str: String = fit_str(disk.formatted, 27);
+    let n_str: String = fit_str(net.formatted, 27);
+    let l_str: String = fit_str(mascot.label, 27);
+
+    out = out + border_col + "│ " + rst + "CPU " + cpu_bar + "  " + d_str + " " + mascot.line1 + "   " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + "MEM " + mem_bar + "  " + n_str + " " + mascot.line2 + "   " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + "SWP " + swp_bar + "  " + l_str + " " + mascot.line3 + "   " + border_col + "│" + rst + "\n";
+
+    out = out + border_col + "├── Systemd Slices ─────────────────────────────────────────────────────────────┤" + rst + "\n";
+    let s_row1: String = fit_str(format_slice_row(slices.system_slice), 37) + "  " + fit_str(format_slice_row(slices.user_slice), 36);
+    let s_row2: String = fit_str(format_slice_row(slices.app_slice), 37) + "  " + fit_str(format_slice_row(slices.other_slice), 36);
+    out = out + border_col + "│ " + rst + s_row1 + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + s_row2 + " " + border_col + "│" + rst + "\n";
+
+    out = out + border_col + "├── Active Processes ───────────────────────────────────────────────────────────┤" + rst + "\n";
+    out = out + border_col + "│ " + rst + pad_right("  PID", 8) + pad_right("COMMAND", 22) + pad_right("STATE", 8) + pad_right("RES(MiB)", 12) + pad_right("SYSTEMD SLICE", 24) + "  " + border_col + "│" + rst + "\n";
+
+    let p_len: Int = list_len(procs);
+    let display_limit: Int = if p_len < 10 { p_len } else { 10 };
+    let mut i: Int = 0;
+    while i < display_limit {
+        let p: ProcEntry = list_get(procs, i);
+        let pid_s: String = pad_left(to_string(p.pid), 6) + "  ";
+        let comm_s: String = pad_right(str_slice(p.comm, 0, if chars_len(p.comm) > 20 { 20 } else { chars_len(p.comm) }), 22);
+        let state_s: String = pad_right(p.state, 8);
+        let rss_s: String = pad_right(to_string(p.rss_mib), 12);
+        let slice_s: String = pad_right(p.slice, 24);
+        out = out + border_col + "│ " + rst + pid_s + comm_s + state_s + rss_s + slice_s + "  " + border_col + "│" + rst + "\n";
+        i = i + 1;
+    }
+
+    out = out + border_col + "╰───────────────────────────────────────────────────────────────────────────────╯" + rst + "\n";
+    return out;
+}

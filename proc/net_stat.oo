@@ -1,0 +1,68 @@
+// # Net Stat Collector - Network Interface Telemetry
+//
+// Logline: Ingests /proc/net/dev to calculate cumulative RX and TX byte and packet throughput.
+//
+// Setup: Requires FsReadCap. Ignores loopback interface (lo).
+//
+// Beats:
+//   1. Filter physical and routed virtual network interfaces from /proc/net/dev.
+//   2. Accumulate received and transmitted bytes and packet counts.
+//   3. Compute megabyte metrics and format transmission status.
+
+import "proc_read.oo";
+
+pub type NetStat = struct {
+    rx_mib: Int,
+    tx_mib: Int,
+    rx_packets: Int,
+    tx_packets: Int,
+    formatted: String
+};
+
+pub fn read_net_stat(fs: &FsReadCap) -> NetStat {
+    let content: String = read_proc_text(fs, "/proc/net/dev");
+    let lines: List[String] = split_proc_lines(content);
+    let n: Int = list_len(lines);
+
+    let mut tot_rx_b: Int = 0;
+    let mut tot_tx_b: Int = 0;
+    let mut tot_rx_p: Int = 0;
+    let mut tot_tx_p: Int = 0;
+
+    let mut i: Int = 0;
+    while i < n {
+        let line: String = list_get(lines, i);
+        if str_contains(line, ":") {
+            let iface_parts: List[String] = str_split(line, ":");
+            let iface_name: String = str_trim(list_get(iface_parts, 0));
+            if iface_name != "lo" && list_len(iface_parts) > 1 {
+                let rest: String = list_get(iface_parts, 1);
+                let words: List[String] = split_proc_words(rest);
+                let w_count: Int = list_len(words);
+                if w_count >= 10 {
+                    let rx_b: Int = parse_proc_int(list_get(words, 0));
+                    let rx_p: Int = parse_proc_int(list_get(words, 1));
+                    let tx_b: Int = parse_proc_int(list_get(words, 8));
+                    let tx_p: Int = parse_proc_int(list_get(words, 9));
+                    tot_rx_b = tot_rx_b + rx_b;
+                    tot_rx_p = tot_rx_p + rx_p;
+                    tot_tx_b = tot_tx_b + tx_b;
+                    tot_tx_p = tot_tx_p + tx_p;
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    let rx_m: Int = tot_rx_b / 1048576;
+    let tx_m: Int = tot_tx_b / 1048576;
+    let fmt: String = "RX:" + to_string(rx_m) + "MB TX:" + to_string(tx_m) + "MB";
+
+    return NetStat {
+        rx_mib: rx_m,
+        tx_mib: tx_m,
+        rx_packets: tot_rx_p,
+        tx_packets: tot_tx_p,
+        formatted: fmt
+    };
+}

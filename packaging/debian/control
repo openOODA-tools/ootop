@@ -1,0 +1,14 @@
+Source: ootop
+Section: utils
+Priority: optional
+Maintainer: openOODA-tools <ops@openooda.org>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13)
+
+Package: ootop
+Architecture: amd64
+Depends: libc6
+Description: Sovereign real-time system monitor with systemd slice grouping
+ A btop/top replacement written in pure openOODA, featuring
+ negative-trust capability security, systemd slice resource aggregation,
+ ASCII meters and emotional mascot moods, and an MCP stdio surface.

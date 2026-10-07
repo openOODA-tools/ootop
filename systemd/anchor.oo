@@ -1,0 +1,12 @@
+// # Systemd Subsystem Anchor
+//
+// Logline: Re-exports systemd cgroup slice aggregation models and formatting.
+//
+// Setup: Pure shim re-exporting systemd domain pages.
+//
+// Beats:
+//   1. Re-export slice summary and report models.
+//   2. Re-export process slice aggregation logic.
+//   3. Maintain capability boundary discipline.
+
+import "slice_group.oo";

@@ -1,0 +1,16 @@
+// # ootop Root Anchor
+//
+// Logline: Top-level anchor re-exporting proc, systemd, ui, render, and ipc subsystems.
+//
+// Setup: Pure shim re-exporting all ootop domain anchors.
+//
+// Beats:
+//   1. Re-export procfs metrics collectors.
+//   2. Re-export systemd slice aggregation and UI dashboard renderers.
+//   3. Re-export theme styling and IPC interfaces.
+
+import "proc/anchor.oo";
+import "systemd/anchor.oo";
+import "ui/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";

@@ -1,0 +1,73 @@
+// # Disk Stat Collector - Block Device I/O Metrics
+//
+// Logline: Ingests /proc/diskstats to aggregate cumulative sector reads and writes across disks.
+//
+// Setup: Requires FsReadCap. Identifies standard disk devices (sd*, nvme*, vd*).
+//
+// Beats:
+//   1. Filter physical and virtual block storage devices.
+//   2. Accumulate read and written sectors across qualifying drives.
+//   3. Convert raw sectors into megabytes and format usage string.
+
+import "proc_read.oo";
+
+pub type DiskStat = struct {
+    read_mib: Int,
+    write_mib: Int,
+    io_operations: Int,
+    formatted: String
+};
+
+fn is_target_disk(name: String) -> Bool {
+    if str_starts_with(name, "sd") || str_starts_with(name, "vd") || str_starts_with(name, "xvd") {
+        return chars_len(name) == 3;
+    }
+    if str_starts_with(name, "nvme") {
+        return str_contains(name, "n1") && !str_contains(name, "p");
+    }
+    return false;
+}
+
+pub fn read_disk_stat(fs: &FsReadCap) -> DiskStat {
+    let content: String = read_proc_text(fs, "/proc/diskstats");
+    let lines: List[String] = split_proc_lines(content);
+    let n: Int = list_len(lines);
+
+    let mut tot_reads: Int = 0;
+    let mut tot_writes: Int = 0;
+    let mut tot_sec_r: Int = 0;
+    let mut tot_sec_w: Int = 0;
+
+    let mut i: Int = 0;
+    while i < n {
+        let line: String = list_get(lines, i);
+        let words: List[String] = split_proc_words(line);
+        let w_count: Int = list_len(words);
+        if w_count > 9 {
+            let dev: String = list_get(words, 2);
+            if is_target_disk(dev) {
+                let r_ops: Int = parse_proc_int(list_get(words, 3));
+                let r_sec: Int = parse_proc_int(list_get(words, 5));
+                let w_ops: Int = parse_proc_int(list_get(words, 7));
+                let w_sec: Int = parse_proc_int(list_get(words, 9));
+                tot_reads = tot_reads + r_ops;
+                tot_writes = tot_writes + w_ops;
+                tot_sec_r = tot_sec_r + r_sec;
+                tot_sec_w = tot_sec_w + w_sec;
+            }
+        }
+        i = i + 1;
+    }
+
+    let r_mib: Int = (tot_sec_r * 512) / 1048576;
+    let w_mib: Int = (tot_sec_w * 512) / 1048576;
+    let ops: Int = tot_reads + tot_writes;
+    let fmt: String = "R:" + to_string(r_mib) + "MB W:" + to_string(w_mib) + "MB";
+
+    return DiskStat {
+        read_mib: r_mib,
+        write_mib: w_mib,
+        io_operations: ops,
+        formatted: fmt
+    };
+}

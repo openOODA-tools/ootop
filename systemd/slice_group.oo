@@ -1,0 +1,67 @@
+// # Slice Group Aggregator - Systemd Cgroup Architecture
+//
+// Logline: Aggregates process resource allocations across systemd cgroup slice boundaries.
+//
+// Setup: Pure aggregator over ProcEntry collections. Zero ambient authority.
+//
+// Beats:
+//   1. Bucket running processes by systemd slice (system.slice, user.slice, app.slice).
+//   2. Accumulate memory footprint and task counts per slice.
+//   3. Format systemd hierarchy summary for dashboard presentation.
+
+import "proc/proc_list.oo";
+
+pub type SliceSummary = struct {
+    name: String,
+    task_count: Int,
+    rss_mib: Int
+};
+
+pub type SliceReport = struct {
+    system_slice: SliceSummary,
+    user_slice: SliceSummary,
+    app_slice: SliceSummary,
+    other_slice: SliceSummary
+};
+
+pub fn aggregate_slices(procs: List[ProcEntry]) -> SliceReport {
+    let mut sys_cnt: Int = 0;
+    let mut sys_rss: Int = 0;
+    let mut usr_cnt: Int = 0;
+    let mut usr_rss: Int = 0;
+    let mut app_cnt: Int = 0;
+    let mut app_rss: Int = 0;
+    let mut oth_cnt: Int = 0;
+    let mut oth_rss: Int = 0;
+
+    let n: Int = list_len(procs);
+    let mut i: Int = 0;
+    while i < n {
+        let p: ProcEntry = list_get(procs, i);
+        if p.slice == "system.slice" {
+            sys_cnt = sys_cnt + 1;
+            sys_rss = sys_rss + p.rss_mib;
+        } else if p.slice == "user.slice" {
+            usr_cnt = usr_cnt + 1;
+            usr_rss = usr_rss + p.rss_mib;
+        } else if p.slice == "app.slice" {
+            app_cnt = app_cnt + 1;
+            app_rss = app_rss + p.rss_mib;
+        } else {
+            oth_cnt = oth_cnt + 1;
+            oth_rss = oth_rss + p.rss_mib;
+        }
+        i = i + 1;
+    }
+
+    return SliceReport {
+        system_slice: SliceSummary { name: "system.slice", task_count: sys_cnt, rss_mib: sys_rss },
+        user_slice: SliceSummary { name: "user.slice", task_count: usr_cnt, rss_mib: usr_rss },
+        app_slice: SliceSummary { name: "app.slice", task_count: app_cnt, rss_mib: app_rss },
+        other_slice: SliceSummary { name: "other.slice", task_count: oth_cnt, rss_mib: oth_rss }
+    };
+}
+
+pub fn format_slice_row(s: SliceSummary) -> String {
+    return s.name + " (" + to_string(s.task_count) + " tasks, " + to_string(s.rss_mib) + " MiB)";
+}

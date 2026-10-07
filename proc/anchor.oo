@@ -1,0 +1,17 @@
+// # Proc Subsystem Anchor
+//
+// Logline: Re-exports CPU, memory, disk, network, and process table procfs collectors.
+//
+// Setup: Pure shim re-exporting proc domain pages.
+//
+// Beats:
+//   1. Re-export virtual filesystem ingestion helpers.
+//   2. Re-export CPU, memory, disk, and network collectors.
+//   3. Re-export process list and stat collectors.
+
+import "proc_read.oo";
+import "cpu_stat.oo";
+import "mem_stat.oo";
+import "disk_stat.oo";
+import "net_stat.oo";
+import "proc_list.oo";

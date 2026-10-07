@@ -1,0 +1,107 @@
+// # CPU Stat Collector - Processor Load Metrics
+//
+// Logline: Ingests /proc/stat to compute processor utilization, active times, and core counts.
+//
+// Setup: Requires FsReadCap. Pure numeric computation over virtual proc streams.
+//
+// Beats:
+//   1. Parse total processor ticks across user, system, idle, and wait buckets.
+//   2. Calculate instantaneous utilization percentage and active tick deltas.
+//   3. Discover active online processor core counts.
+
+import "proc_read.oo";
+
+pub type CpuStat = struct {
+    user: Int,
+    nice: Int,
+    system: Int,
+    idle: Int,
+    iowait: Int,
+    irq: Int,
+    softirq: Int,
+    steal: Int,
+    total: Int,
+    active: Int
+};
+
+pub type CpuOverview = struct {
+    percent: Int,
+    cores: Int,
+    stat: CpuStat,
+    formatted: String
+};
+
+pub fn parse_cpu_stat_line(line: String) -> CpuStat {
+    let words: List[String] = split_proc_words(line);
+    let count: Int = list_len(words);
+    let u: Int = if count > 1 { parse_proc_int(list_get(words, 1)) } else { 0 };
+    let n: Int = if count > 2 { parse_proc_int(list_get(words, 2)) } else { 0 };
+    let s: Int = if count > 3 { parse_proc_int(list_get(words, 3)) } else { 0 };
+    let idl: Int = if count > 4 { parse_proc_int(list_get(words, 4)) } else { 0 };
+    let io: Int = if count > 5 { parse_proc_int(list_get(words, 5)) } else { 0 };
+    let ir: Int = if count > 6 { parse_proc_int(list_get(words, 6)) } else { 0 };
+    let si: Int = if count > 7 { parse_proc_int(list_get(words, 7)) } else { 0 };
+    let st: Int = if count > 8 { parse_proc_int(list_get(words, 8)) } else { 0 };
+
+    let tot: Int = u + n + s + idl + io + ir + si + st;
+    let act: Int = u + n + s + ir + si + st;
+
+    return CpuStat {
+        user: u,
+        nice: n,
+        system: s,
+        idle: idl,
+        iowait: io,
+        irq: ir,
+        softirq: si,
+        steal: st,
+        total: tot,
+        active: act
+    };
+}
+
+pub fn calc_cpu_percent(stat: CpuStat) -> Int {
+    if stat.total <= 0 { return 0; }
+    let pct: Int = (stat.active * 100) / stat.total;
+    if pct > 100 { return 100; }
+    return pct;
+}
+
+pub fn calc_cpu_delta_percent(prev: CpuStat, curr: CpuStat) -> Int {
+    let tot_diff: Int = curr.total - prev.total;
+    let act_diff: Int = curr.active - prev.active;
+    if tot_diff <= 0 { return 0; }
+    let pct: Int = (act_diff * 100) / tot_diff;
+    if pct < 0 { return 0; }
+    if pct > 100 { return 100; }
+    return pct;
+}
+
+pub fn read_cpu_overview(fs: &FsReadCap) -> CpuOverview {
+    let content: String = read_proc_text(fs, "/proc/stat");
+    let lines: List[String] = split_proc_lines(content);
+    let n: Int = list_len(lines);
+    let mut main_stat: CpuStat = CpuStat {
+        user: 0, nice: 0, system: 0, idle: 0, iowait: 0,
+        irq: 0, softirq: 0, steal: 0, total: 0, active: 0
+    };
+    let mut cores: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let line: String = list_get(lines, i);
+        if str_starts_with(line, "cpu ") {
+            main_stat = parse_cpu_stat_line(line);
+        } else if str_starts_with(line, "cpu") {
+            cores = cores + 1;
+        }
+        i = i + 1;
+    }
+    let pct: Int = calc_cpu_percent(main_stat);
+    let fmt: String = to_string(pct) + "% (" + to_string(cores) + " cores)";
+    return CpuOverview {
+        percent: pct,
+        cores: cores,
+        stat: main_stat,
+        formatted: fmt
+    };
+}
