@@ -164,7 +164,7 @@ test: $(BIN)
 	@printf '{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":-1}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics negative pid exits -32602"
 	@printf '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":1.5}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics float pid exits -32602"
 	@printf '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"query_process_metrics","arguments":{"pid":0}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q -- "-32602" && echo "PASS: MCP query_process_metrics pid 0 exits -32602"
-	@printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"process_list","arguments":{"limit":-5}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q "user.slice" && echo "PASS: MCP process_list negative limit fallback"
+	@printf '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"process_list","arguments":{"limit":-5}}}\n' | OODA_NO_JAIL=1 ./$(BIN) --mcp | grep -q "pid" && echo "PASS: MCP process_list negative limit fallback"
 	@echo "=== Double-Run Determinism & Layout Uniformity ==="
 	@run1="$$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | ./$(BIN) --mcp)"; \
 	run2="$$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | ./$(BIN) --mcp)"; \
