@@ -24,7 +24,7 @@ curl -fsSL https://openooda-tools.github.io/ootop/install.sh | bash
 curl -fsSL https://openooda-tools.github.io/ootop/install.sh | bash -s -- --apt
 
 # Or manual package install
-sudo dpkg -i ootop_0.1.0-1_amd64.deb
+sudo dpkg -i ootop_0.2.0-1_amd64.deb
 ```
 
 ### Fedora / RHEL / CentOS (DNF)
@@ -33,7 +33,7 @@ sudo dpkg -i ootop_0.1.0-1_amd64.deb
 curl -fsSL https://openooda-tools.github.io/ootop/install.sh | bash -s -- --dnf
 
 # Or manual RPM install
-sudo dnf install ./ootop-0.1.0-1.x86_64.rpm
+sudo dnf install ./ootop-0.2.0-1.x86_64.rpm
 ```
 
 ### Arch Linux (PKGBUILD)
@@ -131,9 +131,19 @@ ootop --mcp
 ```
 
 ### Supported Tools:
-1. `system_metrics`: Ingests and serializes CPU %, core count, memory %, swap %, disk I/O, and network I/O.
-2. `process_list`: Inspects active system processes, reporting PID, command, RSS memory footprint, and systemd slice.
-3. `systemd_slices`: Aggregates active task counts and memory usage across systemd slice boundaries.
+1. `system_metrics`: Ingests and serializes CPU %, core count, memory %, swap %, disk I/O, network I/O, load averages (1m, 5m, 15m), and uptime seconds.
+2. `process_list`: Inspects active system processes, reporting PID, command, RSS memory footprint, systemd slice, state, and thread count with optional `limit` and `sort_by` (`memory`, `pid`, `comm`).
+3. `systemd_slices`: Aggregates active task counts and memory usage across systemd slice boundaries (`system.slice`, `user.slice`, `app.slice`, `other`).
+4. `inspect_cgroup_slice`: Returns list of processes belonging to a target cgroup slice (`slice`, e.g. `system.slice`, `user.slice`).
+5. `query_process_metrics`: Returns detailed process info (pid, comm, rss_mib, slice, state, threads) for a specific target `pid`.
+
+---
+
+## 6. Terminal Width Adaptation
+
+`ootop` discovers terminal width via `OO_COLUMNS` or `COLUMNS` from the environment:
+- **Standard Layout (>= 60 columns)**: Multi-column dashboard with resource meters, ASCII cat mascot, systemd slices, and detailed process table.
+- **Compact Layout (< 60 columns)**: Automatically collapses to a clean single-column telemetry view designed for narrow terminal panes, splits, and embedded monitors.
 
 ---
 

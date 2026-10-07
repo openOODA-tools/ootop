@@ -45,6 +45,83 @@ pub fn fit_str(s: String, w: Int) -> String {
     return pad_right(s, w);
 }
 
+fn pad_line(ch: String, count: Int) -> String {
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < count {
+        out = out + ch;
+        i = i + 1;
+    }
+    return out;
+}
+
+fn render_compact_dashboard(
+    cpu: CpuOverview,
+    mem: MemStat,
+    disk: DiskStat,
+    net: NetStat,
+    slices: SliceReport,
+    procs: List[ProcEntry],
+    theme: String,
+    use_color: Bool,
+    term_width: Int
+) -> String {
+    let esc: String = ansi_esc();
+    let border_col: String = if use_color { esc + "[90m" } else { "" };
+    let rst: String = if use_color { esc + "[0m" } else { "" };
+    let title_col: String = if use_color { esc + "[1;36m" } else { "" };
+
+    let w: Int = if term_width >= 42 { term_width } else { 48 };
+    let iw: Int = w - 2;
+
+    let mut out: String = "";
+    let h_dash: Int = if iw > 15 { iw - 15 } else { 2 };
+    out = out + border_col + "╭── " + title_col + "ootop 0.2.0" + border_col + " " + pad_line("─", h_dash) + "╮" + rst + "\n";
+
+    let cpu_bar: String = render_progress_bar(cpu.percent, 10, theme, use_color);
+    let mem_bar: String = render_progress_bar(mem.mem_percent, 10, theme, use_color);
+    let swp_bar: String = render_progress_bar(mem.swap_percent, 10, theme, use_color);
+    let mascot: MascotMood = get_mascot_mood(cpu.percent, theme, use_color);
+
+    out = out + border_col + "│ " + rst + fit_str("CPU " + cpu_bar, iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str("MEM " + mem_bar, iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str("SWP " + swp_bar, iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str("DISK " + disk.formatted, iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str("NET  " + net.formatted, iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str("MOOD " + mascot.label, iw - 2) + " " + border_col + "│" + rst + "\n";
+
+    let s_dash: Int = if iw > 19 { iw - 19 } else { 2 };
+    out = out + border_col + "├── Systemd Slices " + pad_line("─", s_dash) + "┤" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str(format_slice_row(slices.system_slice), iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str(format_slice_row(slices.user_slice), iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str(format_slice_row(slices.app_slice), iw - 2) + " " + border_col + "│" + rst + "\n";
+    out = out + border_col + "│ " + rst + fit_str(format_slice_row(slices.other_slice), iw - 2) + " " + border_col + "│" + rst + "\n";
+
+    let p_dash: Int = if iw > 21 { iw - 21 } else { 2 };
+    out = out + border_col + "├── Active Processes " + pad_line("─", p_dash) + "┤" + rst + "\n";
+    let comm_w: Int = if iw > 20 { iw - 18 } else { 12 };
+    let p_hdr: String = fit_str(pad_right("  PID", 7) + pad_right("COMMAND", comm_w) + pad_right("RES(MiB)", 9), iw - 2);
+    out = out + border_col + "│ " + rst + p_hdr + " " + border_col + "│" + rst + "\n";
+
+    let p_len: Int = list_len(procs);
+    let display_limit: Int = if p_len < 8 { p_len } else { 8 };
+    let mut i: Int = 0;
+    while i < display_limit {
+        let p: ProcEntry = list_get(procs, i);
+        let pid_s: String = pad_left(to_string(p.pid), 5) + "  ";
+        let c_len: Int = chars_len(p.comm);
+        let max_c: Int = if comm_w > 2 { comm_w - 2 } else { 6 };
+        let comm_s: String = pad_right(str_slice(p.comm, 0, if c_len > max_c { max_c } else { c_len }), comm_w);
+        let rss_s: String = pad_right(to_string(p.rss_mib), 9);
+        let p_row: String = fit_str(pid_s + comm_s + rss_s, iw - 2);
+        out = out + border_col + "│ " + rst + p_row + " " + border_col + "│" + rst + "\n";
+        i = i + 1;
+    }
+
+    out = out + border_col + "╰" + pad_line("─", iw) + "╯" + rst + "\n";
+    return out;
+}
+
 pub fn render_dashboard(
     cpu: CpuOverview,
     mem: MemStat,
@@ -53,15 +130,20 @@ pub fn render_dashboard(
     slices: SliceReport,
     procs: List[ProcEntry],
     theme: String,
-    use_color: Bool
+    use_color: Bool,
+    term_width: Int
 ) -> String {
+    if term_width < 60 {
+        return render_compact_dashboard(cpu, mem, disk, net, slices, procs, theme, use_color, term_width);
+    }
+
     let esc: String = ansi_esc();
     let border_col: String = if use_color { esc + "[90m" } else { "" };
     let rst: String = if use_color { esc + "[0m" } else { "" };
     let title_col: String = if use_color { esc + "[1;36m" } else { "" };
 
     let mut out: String = "";
-    out = out + border_col + "╭── " + title_col + "ootop 0.1.0 (sovereign top)" + border_col + " ───────────────────────────────────────────────────╮" + rst + "\n";
+    out = out + border_col + "╭── " + title_col + "ootop 0.2.0 (sovereign top)" + border_col + " ───────────────────────────────────────────────────╮" + rst + "\n";
 
     let cpu_bar: String = render_progress_bar(cpu.percent, 16, theme, use_color);
     let mem_bar: String = render_progress_bar(mem.mem_percent, 16, theme, use_color);

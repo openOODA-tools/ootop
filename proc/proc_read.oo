@@ -92,3 +92,27 @@ pub fn split_proc_words(line: String) -> List[String] {
     }
     return words;
 }
+
+pub fn read_proc_loadavg(fs: &FsReadCap) -> List[String] {
+    let content: String = read_proc_text(fs, "/proc/loadavg");
+    let words: List[String] = split_proc_words(content);
+    let mut out: List[String] = list_new();
+    let l1: String = if list_len(words) > 0 { list_get(words, 0) } else { "0.00" };
+    let l5: String = if list_len(words) > 1 { list_get(words, 1) } else { "0.00" };
+    let l15: String = if list_len(words) > 2 { list_get(words, 2) } else { "0.00" };
+    out = list_push(out, l1);
+    out = list_push(out, l5);
+    out = list_push(out, l15);
+    return out;
+}
+
+pub fn read_proc_uptime_seconds(fs: &FsReadCap) -> Int {
+    let content: String = read_proc_text(fs, "/proc/uptime");
+    let words: List[String] = split_proc_words(content);
+    if list_len(words) == 0 { return 0; }
+    let up_str: String = list_get(words, 0);
+    let dot_pos: Int = str_index_of(up_str, ".");
+    let int_str: String = if dot_pos > 0 { str_slice(up_str, 0, dot_pos) } else { up_str };
+    return parse_proc_int(int_str);
+}
+

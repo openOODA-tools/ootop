@@ -17,7 +17,8 @@ pub type ProcEntry = struct {
     comm: String,
     state: String,
     rss_mib: Int,
-    slice: String
+    slice: String,
+    threads: Int
 };
 
 fn is_numeric_str(s: String) -> Bool {
@@ -43,10 +44,49 @@ pub fn extract_proc_slice(cgroup_content: String) -> String {
     return "root.slice";
 }
 
+fn find_last_char(s: String, target: String) -> Int {
+    let n: Int = chars_len(s);
+    let mut i: Int = n - 1;
+    while i >= 0 {
+        if char_at(s, i) == target {
+            return i;
+        }
+        i = i - 1;
+    }
+    return -1;
+}
+
 pub fn read_proc_entry(fs: &FsReadCap, pid: Int) -> ProcEntry {
     let pid_str: String = to_string(pid);
+    let mut comm: String = "unknown";
+    let mut state: String = "R";
+    let mut threads: Int = 1;
+
+    let stat_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/stat");
+    if chars_len(stat_raw) > 0 {
+        let open_paren: Int = str_index_of(stat_raw, "(");
+        let close_paren: Int = find_last_char(stat_raw, ")");
+        if open_paren >= 0 && close_paren > open_paren {
+            comm = str_slice(stat_raw, open_paren + 1, close_paren);
+            let rest: String = str_trim(str_slice(stat_raw, close_paren + 1, chars_len(stat_raw)));
+            let words: List[String] = split_proc_words(rest);
+            if list_len(words) > 0 {
+                state = list_get(words, 0);
+            }
+            if list_len(words) > 17 {
+                let th: Int = parse_proc_int(list_get(words, 17));
+                if th > 0 { threads = th; }
+            }
+        }
+    }
+
     let comm_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/comm");
-    let comm: String = if comm_raw != "" { str_trim(comm_raw) } else { "unknown" };
+    if chars_len(comm_raw) > 0 {
+        let trimmed: String = str_trim(comm_raw);
+        if chars_len(trimmed) > 0 {
+            comm = trimmed;
+        }
+    }
 
     let statm_raw: String = read_proc_text(fs, "/proc/" + pid_str + "/statm");
     let statm_words: List[String] = split_proc_words(statm_raw);
@@ -59,13 +99,64 @@ pub fn read_proc_entry(fs: &FsReadCap, pid: Int) -> ProcEntry {
     return ProcEntry {
         pid: pid,
         comm: comm,
-        state: "R",
+        state: state,
         rss_mib: rss_m,
-        slice: slice
+        slice: slice,
+        threads: threads
     };
 }
 
-pub fn collect_top_processes(fs: &FsReadCap, limit: Int) -> List[ProcEntry] {
+pub fn compare_strings(a: String, b: String) -> Int {
+    let na: Int = bytes_len(a);
+    let nb: Int = bytes_len(b);
+    let m: Int = if na < nb { na } else { nb };
+    let mut i: Int = 0;
+    while i < m {
+        let ba: Int = byte_at(a, i);
+        let bb: Int = byte_at(b, i);
+        if ba != bb {
+            return ba - bb;
+        }
+        i = i + 1;
+    }
+    return na - nb;
+}
+
+fn proc_should_swap(a: ProcEntry, b: ProcEntry, sort_by: String) -> Bool {
+    if sort_by == "pid" {
+        return a.pid > b.pid;
+    }
+    if sort_by == "comm" {
+        let c: Int = compare_strings(a.comm, b.comm);
+        if c != 0 { return c > 0; }
+        return a.pid > b.pid;
+    }
+    if a.rss_mib < b.rss_mib { return true; }
+    if a.rss_mib > b.rss_mib { return false; }
+    return a.pid > b.pid;
+}
+
+pub fn sort_proc_entries(entries: List[ProcEntry], sort_by: String) -> List[ProcEntry] {
+    let mut arr: List[ProcEntry] = entries;
+    let n: Int = list_len(arr);
+    let mut i: Int = 0;
+    while i < n {
+        let mut j: Int = i + 1;
+        while j < n {
+            let a: ProcEntry = list_get(arr, i);
+            let b: ProcEntry = list_get(arr, j);
+            if proc_should_swap(a, b, sort_by) {
+                arr = list_set(arr, i, b);
+                arr = list_set(arr, j, a);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return arr;
+}
+
+pub fn collect_all_processes(fs: &FsReadCap) -> List[ProcEntry] {
     let entries: List[String] = fs_read_dir(fs, "/proc");
     let total: Int = list_len(entries);
     let mut collected: List[ProcEntry] = list_new();
@@ -75,21 +166,53 @@ pub fn collect_top_processes(fs: &FsReadCap, limit: Int) -> List[ProcEntry] {
         let name: String = list_get(entries, i);
         if is_numeric_str(name) {
             let pid: Int = parse_proc_int(name);
-            let entry: ProcEntry = read_proc_entry(fs, pid);
-            if entry.rss_mib > 0 || list_len(collected) < limit {
+            if pid > 0 {
+                let entry: ProcEntry = read_proc_entry(fs, pid);
                 collected = list_push(collected, entry);
             }
         }
         i = i + 1;
     }
+    return collected;
+}
 
-    let c_len: Int = list_len(collected);
+pub fn collect_top_processes(fs: &FsReadCap, limit: Int) -> List[ProcEntry] {
+    let procs: List[ProcEntry] = collect_all_processes(fs);
+    let sorted: List[ProcEntry] = sort_proc_entries(procs, "memory");
+    let c_len: Int = list_len(sorted);
     let mut top: List[ProcEntry] = list_new();
     let max_n: Int = if c_len < limit { c_len } else { limit };
     let mut j: Int = 0;
     while j < max_n {
-        top = list_push(top, list_get(collected, j));
+        top = list_push(top, list_get(sorted, j));
         j = j + 1;
     }
     return top;
 }
+
+pub fn filter_processes_by_slice(procs: List[ProcEntry], slice_name: String) -> List[ProcEntry] {
+    let mut out: List[ProcEntry] = list_new();
+    let n: Int = list_len(procs);
+    let mut i: Int = 0;
+    while i < n {
+        let p: ProcEntry = list_get(procs, i);
+        if p.slice == slice_name || str_contains(p.slice, slice_name) {
+            out = list_push(out, p);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn find_process_by_pid(fs: &FsReadCap, pid: Int) -> Result[ProcEntry, String] {
+    if pid <= 0 {
+        return Err("invalid pid");
+    }
+    let pid_str: String = to_string(pid);
+    let stat_content: String = read_proc_text(fs, "/proc/" + pid_str + "/stat");
+    if chars_len(stat_content) == 0 {
+        return Err("process not found: " + pid_str);
+    }
+    return Ok(read_proc_entry(fs, pid));
+}
+

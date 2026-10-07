@@ -7,8 +7,10 @@
 // Beats:
 //   1. Re-export command-line option parser and TopOpts record.
 //   2. Re-export JSON field extraction helpers.
-//   3. Re-export MCP stdio server driver.
+//   3. Re-export tool dispatch and MCP stdio server driver.
 
 import "top_opts.oo";
 import "json_field.oo";
+import "tool_dispatch.oo";
 import "mcp_serve.oo";
+

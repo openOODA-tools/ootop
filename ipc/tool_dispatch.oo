@@ -1,0 +1,162 @@
+// # MCP Tool Dispatcher - Telemetry and Process Inspection
+//
+// Logline: Dispatches Model Context Protocol tool requests for system telemetry and process control.
+//
+// Setup: Demands &FsReadCap for procfs inspection. Pure JSON serialization.
+//
+// Beats:
+//   1. Construct JSON-RPC result and error response envelopes.
+//   2. Define JSON Schema catalogue for all 5 system telemetry and process tools.
+//   3. Dispatch tools/call invocations and serialize process tables.
+
+import "proc/cpu_stat.oo";
+import "proc/mem_stat.oo";
+import "proc/disk_stat.oo";
+import "proc/net_stat.oo";
+import "proc/proc_read.oo";
+import "proc/proc_list.oo";
+import "systemd/slice_group.oo";
+import "json_field.oo";
+
+pub fn build_error(id: String, code: Int, msg: String) -> String {
+    let safe_id: String = if chars_len(id) == 0 { "null" } else { id };
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + safe_id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}";
+}
+
+pub fn build_tool_result(id: String, text: String) -> String {
+    let safe_id: String = if chars_len(id) == 0 { "null" } else { id };
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + safe_id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}";
+}
+
+pub fn tools_list_payload(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":["
+        + "{\"name\":\"system_metrics\",\"description\":\"Return current CPU, memory, swap, disk, network, load average, and uptime telemetry\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+        + "{\"name\":\"process_list\",\"description\":\"Return active running processes sorted by memory, pid, or comm\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\",\"description\":\"Max processes to return (default 15)\"},\"sort_by\":{\"type\":\"string\",\"enum\":[\"memory\",\"pid\",\"comm\"],\"description\":\"Sort criterion (default memory)\"}}}}"
+        + ","
+        + "{\"name\":\"systemd_slices\",\"description\":\"Return task count and memory aggregation across systemd slices\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}},"
+        + "{\"name\":\"inspect_cgroup_slice\",\"description\":\"Return list of active processes belonging to a target cgroup slice\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"slice\":{\"type\":\"string\",\"description\":\"Target systemd slice name\"}},\"required\":[\"slice\"]}},"
+        + "{\"name\":\"query_process_metrics\",\"description\":\"Return detailed metrics for a single process by PID\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"pid\":{\"type\":\"integer\",\"description\":\"Target process ID\"}},\"required\":[\"pid\"]}}"
+        + "]}}";
+}
+
+pub fn render_proc_json(p: ProcEntry) -> String {
+    return "{\"pid\":" + to_string(p.pid)
+        + ",\"comm\":\"" + json_escape(p.comm) + "\""
+        + ",\"rss_mib\":" + to_string(p.rss_mib)
+        + ",\"slice\":\"" + json_escape(p.slice) + "\""
+        + ",\"state\":\"" + json_escape(p.state) + "\""
+        + ",\"threads\":" + to_string(p.threads) + "}";
+}
+
+pub fn handle_tool_call(fs: &FsReadCap, id: String, req: String) -> String {
+    let params: String = json_field_raw(req, "params");
+    let tool_name: String = json_field_string(params, "name");
+    let args: String = json_field_raw(params, "arguments");
+
+    if chars_len(tool_name) == 0 {
+        return build_error(id, -32602, "missing required parameter: name");
+    }
+
+    if tool_name == "system_metrics" {
+        let cpu: CpuOverview = read_cpu_overview(fs);
+        let mem: MemStat = read_mem_stat(fs);
+        let disk: DiskStat = read_disk_stat(fs);
+        let net: NetStat = read_net_stat(fs);
+        let loads: List[String] = read_proc_loadavg(fs);
+        let l1: String = list_get(loads, 0);
+        let l5: String = list_get(loads, 1);
+        let l15: String = list_get(loads, 2);
+        let uptime_sec: Int = read_proc_uptime_seconds(fs);
+
+        let mut res: String = "{\n";
+        res = res + "  \"cpu\": {\"percent\": " + to_string(cpu.percent) + ", \"cores\": " + to_string(cpu.cores) + "},\n";
+        res = res + "  \"memory\": {\"total_mib\": " + to_string(mem.mem_total_mib) + ", \"used_mib\": " + to_string(mem.mem_used_mib) + ", \"percent\": " + to_string(mem.mem_percent) + "},\n";
+        res = res + "  \"swap\": {\"total_mib\": " + to_string(mem.swap_total_mib) + ", \"used_mib\": " + to_string(mem.swap_used_mib) + ", \"percent\": " + to_string(mem.swap_percent) + "},\n";
+        res = res + "  \"disk\": {\"read_mib\": " + to_string(disk.read_mib) + ", \"write_mib\": " + to_string(disk.write_mib) + ", \"iops\": " + to_string(disk.io_operations) + "},\n";
+        res = res + "  \"network\": {\"rx_mib\": " + to_string(net.rx_mib) + ", \"tx_mib\": " + to_string(net.tx_mib) + "},\n";
+        res = res + "  \"load_average\": {\"1m\": " + l1 + ", \"5m\": " + l5 + ", \"15m\": " + l15 + "},\n";
+        res = res + "  \"uptime_seconds\": " + to_string(uptime_sec) + "\n";
+        res = res + "}\n";
+        return build_tool_result(id, res);
+    }
+
+    if tool_name == "process_list" {
+        let sort_by_arg: String = json_field_string(args, "sort_by");
+        let sort_by: String = if chars_len(sort_by_arg) == 0 { "memory" } else { sort_by_arg };
+        if sort_by != "memory" && sort_by != "pid" && sort_by != "comm" {
+            return build_error(id, -32602, "invalid sort_by, must be one of: memory, pid, comm");
+        }
+        let raw_lim: String = json_field_raw(args, "limit");
+        let parsed_lim: Int = if chars_len(raw_lim) > 0 { parse_proc_int(raw_lim) } else { 15 };
+        let limit: Int = if parsed_lim > 0 { parsed_lim } else { 15 };
+
+        let procs: List[ProcEntry] = collect_all_processes(fs);
+        let sorted: List[ProcEntry] = sort_proc_entries(procs, sort_by);
+        let n: Int = list_len(sorted);
+        let max_n: Int = if n < limit { n } else { limit };
+        let mut res: String = "[\n";
+        let mut i: Int = 0;
+        while i < max_n {
+            let p: ProcEntry = list_get(sorted, i);
+            res = res + "  " + render_proc_json(p);
+            if i + 1 < max_n { res = res + ","; }
+            res = res + "\n";
+            i = i + 1;
+        }
+        res = res + "]\n";
+        return build_tool_result(id, res);
+    }
+
+    if tool_name == "systemd_slices" {
+        let procs: List[ProcEntry] = collect_all_processes(fs);
+        let s: SliceReport = aggregate_slices(procs);
+        let mut res: String = "{\n";
+        res = res + "  \"system_slice\": {\"tasks\": " + to_string(s.system_slice.task_count) + ", \"rss_mib\": " + to_string(s.system_slice.rss_mib) + "},\n";
+        res = res + "  \"user_slice\": {\"tasks\": " + to_string(s.user_slice.task_count) + ", \"rss_mib\": " + to_string(s.user_slice.rss_mib) + "},\n";
+        res = res + "  \"app_slice\": {\"tasks\": " + to_string(s.app_slice.task_count) + ", \"rss_mib\": " + to_string(s.app_slice.rss_mib) + "},\n";
+        res = res + "  \"other_slice\": {\"tasks\": " + to_string(s.other_slice.task_count) + ", \"rss_mib\": " + to_string(s.other_slice.rss_mib) + "}\n";
+        res = res + "}\n";
+        return build_tool_result(id, res);
+    }
+
+    if tool_name == "inspect_cgroup_slice" {
+        let slice_arg: String = json_field_string(args, "slice");
+        if chars_len(slice_arg) == 0 {
+            return build_error(id, -32602, "missing required argument: slice");
+        }
+        let procs: List[ProcEntry] = collect_all_processes(fs);
+        let matched: List[ProcEntry] = filter_processes_by_slice(procs, slice_arg);
+        let n: Int = list_len(matched);
+        let mut res: String = "[\n";
+        let mut i: Int = 0;
+        while i < n {
+            let p: ProcEntry = list_get(matched, i);
+            res = res + "  " + render_proc_json(p);
+            if i + 1 < n { res = res + ","; }
+            res = res + "\n";
+            i = i + 1;
+        }
+        res = res + "]\n";
+        return build_tool_result(id, res);
+    }
+
+    if tool_name == "query_process_metrics" {
+        let raw_pid: String = json_field_raw(args, "pid");
+        if chars_len(raw_pid) == 0 {
+            return build_error(id, -32602, "missing required argument: pid");
+        }
+        let pid_val: Int = parse_proc_int(raw_pid);
+        if pid_val <= 0 {
+            return build_error(id, -32602, "invalid pid: " + raw_pid);
+        }
+        let r: Result[ProcEntry, String] = find_process_by_pid(fs, pid_val);
+        if r.is_err() {
+            return build_error(id, -32602, match r { Ok(_) => "", Err(e) => e });
+        }
+        let p: ProcEntry = match r { Ok(entry) => entry, Err(_) => read_proc_entry(fs, pid_val) };
+        let res: String = render_proc_json(p) + "\n";
+        return build_tool_result(id, res);
+    }
+
+    return build_error(id, -32601, "unknown tool: " + tool_name);
+}

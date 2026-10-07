@@ -15,9 +15,10 @@ import "ui/anchor.oo";
 import "render/anchor.oo";
 import "ipc/anchor.oo";
 import "std/fs/time/chrono.oo";
+import "std/fs/process/env.oo";
 
 fn print_help() {
-    println("ootop 0.1.0 (openOODA sovereign top)");
+    println("ootop 0.2.0 (openOODA sovereign top)");
     println("Usage: ootop [OPTIONS]");
     println("");
     println("Real-time TUI dashboard and system monitor with systemd slice grouping.");
@@ -34,12 +35,12 @@ fn print_help() {
 }
 
 fn print_version() {
-    println("ootop 0.1.0");
+    println("ootop 0.2.0");
     println("Copyright (C) 2026 openOODA Project.");
     println("License: Apache 2.0. Sovereign capability-bounded system dashboard.");
 }
 
-fn render_cycle(fs: &FsReadCap, theme: String, use_color: Bool) {
+fn render_cycle(fs: &FsReadCap, theme: String, use_color: Bool, term_width: Int) {
     let cpu: CpuOverview = read_cpu_overview(fs);
     let mem: MemStat = read_mem_stat(fs);
     let disk: DiskStat = read_disk_stat(fs);
@@ -47,7 +48,7 @@ fn render_cycle(fs: &FsReadCap, theme: String, use_color: Bool) {
     let procs: List[ProcEntry] = collect_top_processes(fs, 10);
     let slices: SliceReport = aggregate_slices(procs);
 
-    let frame: String = render_dashboard(cpu, mem, disk, net, slices, procs, theme, use_color);
+    let frame: String = render_dashboard(cpu, mem, disk, net, slices, procs, theme, use_color, term_width);
     print(frame);
 }
 
@@ -68,11 +69,24 @@ pub fn main(fs: &FsReadCap, time: &TimeCap, env: &EnvCap, args: List[String]) ->
     let theme: String = if opts.theme_override != "" { opts.theme_override } else { resolve_top_theme(fs, env) };
     let use_color: Bool = !opts.no_color;
 
+    let mut term_width: Int = 80;
+    let oo_col: Result[String, String] = env_get(env, "OO_COLUMNS");
+    if oo_col.is_ok() {
+        let cw: Int = parse_proc_int(match oo_col { Ok(s) => s, Err(_) => "" });
+        if cw > 0 { term_width = cw; }
+    } else {
+        let col_res: Result[String, String] = env_get(env, "COLUMNS");
+        if col_res.is_ok() {
+            let cw: Int = parse_proc_int(match col_res { Ok(s) => s, Err(_) => "" });
+            if cw > 0 { term_width = cw; }
+        }
+    }
+
     if opts.batch_mode {
         let max_iter: Int = if opts.iterations > 0 { opts.iterations } else { 1 };
         let mut i: Int = 0;
         while i < max_iter {
-            render_cycle(fs, theme, use_color);
+            render_cycle(fs, theme, use_color, term_width);
             i = i + 1;
             if i < max_iter {
                 chrono_sleep_ms(time, opts.delay_sec * 1000);
@@ -87,7 +101,7 @@ pub fn main(fs: &FsReadCap, time: &TimeCap, env: &EnvCap, args: List[String]) ->
 
     while max_iter == 0 || iter < max_iter {
         print(term_cursor_home());
-        render_cycle(fs, theme, use_color);
+        render_cycle(fs, theme, use_color, term_width);
         iter = iter + 1;
         if max_iter == 0 || iter < max_iter {
             chrono_sleep_ms(time, opts.delay_sec * 1000);

@@ -1,5 +1,5 @@
 Name:           ootop
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Sovereign real-time system monitor with systemd slice grouping
 License:        ASL 2.0
@@ -24,5 +24,8 @@ install -m 0755 %{SOURCE1} %{buildroot}/usr/bin/ootop-uninstall
 /usr/bin/ootop-uninstall
 
 %changelog
+* Wed Oct 07 2026 openOODA-tools <ops@openooda.org> - 0.2.0-1
+- Elevate ootop to S+ tier: 5 structured MCP tools, streaming framing, and compact view
+
 * Wed Oct 07 2026 openOODA-tools <ops@openooda.org> - 0.1.0-1
 - Initial sovereign release: real-time dashboard, systemd slices, and MCP stdio surface
